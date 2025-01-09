@@ -1,0 +1,56 @@
+- name: Coleta info servidores
+  hosts: all
+  strategy: host_pinned
+  serial: 50
+  ignore_errors: True
+  
+  gather_facts: false
+
+  tasks:
+   
+  - name: GET HOSTNAMES
+    ansible.builtin.raw: hostname
+    register: result_hostname
+    ignore_unreachable: True
+
+  - name: LOG UNREACHABLE HOSTS
+    ansible.builtin.lineinfile:    
+      create: yes
+      line: "{{ inventory_hostname }} | {{ group_names[0]|upper }} | UNREACHABLE"
+      path: "../output/unreachable-hosts.log"
+    delegate_to: "{{ inventory_hostname }}"
+    when: result_hostname.unreachable is defined
+
+  - name: GET TIMESTAMP
+    shell: "date +%d%m%Y"
+    register: tstamp
+    delegate_to: "{{ inventory_hostname }}"
+
+  - name: SETTING ANSIBLE FACTS
+    ansible.builtin.set_fact:
+      ansible_hostname: "{{ result_hostname.stdout | trim | upper() }}"
+      ansible_time: "{{ tstamp.stdout }}"
+      ansible_os: "{{ group_names[0]|upper }}"
+    when: result_hostname.stdout is defined
+
+  - name: CREATE OUTPUT FACTS
+    include_tasks:
+      file: create-facts.yml
+    when: result_hostname.stdout is defined
+
+  - name: PRINT HOSTNAME
+    ansible.builtin.debug:
+      msg: "SERVER: {{group_names[0]}} - {{ ansible_hostname }} - {{ inventory_hostname }}"
+    when: result_hostname.stdout is defined
+      
+  - name: GET UNIX HOSTS INFORMATION
+    include_tasks:
+     file: coleta-unix.yml
+    when: "'unix' in group_names"
+    vars:
+     ansible_become: true
+     ansible_become_method: sudo
+     ansible_become_user: root
+    when: result_hostname.stdout is defined
+
+

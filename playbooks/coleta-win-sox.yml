@@ -1,0 +1,209 @@
+- name: Coleta Legacy
+  hosts: all
+  gather_facts: no
+  become: true
+  become_method: runas
+  become_user: SYSTEM
+  tasks:
+
+    - name: GET HOSTNAME FROM TARGET MACHINE
+      ansible.builtin.setup:
+      register: system_info
+
+    - name: SET FACT WITH PROPER HOSTNAME
+      ansible.builtin.set_fact:
+        real_hostname: "{{ system_info.ansible_facts.ansible_hostname }}"
+
+    - name: CHECKLIST USERS
+      ansible.windows.win_shell: |
+        $pass = ConvertTo-SecureString -String "{{ PASSWD }}" -AsPlainText -Force
+        $credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList "{{ USERNAME }}", $pass
+        try{
+            Invoke-Command -ComputerName {{ inventory_hostname }} -ScriptBlock {
+            $computer = hostname
+            Write-Output "MAQUINA: $env:COMPUTERNAME"
+            Write-Output "DOMINIO: $env:USERDNSDOMAIN"
+            Write-Output " "
+            Write-Output "==== SOX USERS ===="
+            Write-Output " "
+            Write-Output "Node,Description,Disabled,FullName,Lockout,Name"
+            $isWinServer2016OrNewer = [Environment]::OSVersion.Version.Major -ge 10
+            if ($isWinServer2016OrNewer){ 
+                $list=  Get-LocalUser | Select-Object *;
+            }else{ 
+                $list= Get-WmiObject -Class  Win32_UserAccount -Filter "LocalAccount='True'" | Select-Object *;
+            }
+            $list | foreach {$obj= $_;$node = $computer;$disabled= (-not $obj.Enabled).ToString().ToUpper();$lockout= (-not $obj.Enabled).ToString().ToUpper();$description = $obj.Description;$fullname = $obj.FullName;$name = $obj.Name;Write-Output ""; Write-Output "$node,$description,$disabled,$fullName,$lockout,$name";}
+            Write-Output " "
+          } -Credential $credential -ErrorAction Stop
+        }catch{
+            Write-Output "Nao foi possivel executar a coleta SOX."
+            If($_ -like "*connect*" -or "*winrm*"){
+                $err= "Erro de WinRM."
+            }
+            Write-Output "Mensagem de erro: $err"
+            Continue
+        }
+      register: res_sox_users
+
+    - name: CHECKLIST SOX GROUPS
+      ansible.windows.win_shell: |
+        $pass = ConvertTo-SecureString -String "{{ PASSWD }}" -AsPlainText -Force
+        $credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList "{{ USERNAME }}", $pass
+        Write-Output " "
+        try{
+            Invoke-Command -ComputerName {{ inventory_hostname }} -ScriptBlock {
+                try{
+                    $list =@() 
+                    $server=hostname
+                    $server | % {
+                      $server = $_
+                      Write-Output " "
+                      $computer = [ADSI]"WinNT://$server,computer"
+                      
+                      $computer.psbase.children | where { $_.psbase.schemaClassName -eq 'group' } | foreach {
+                          $group =[ADSI]$_.psbase.Path
+                            if($group -ne $null){
+                              "[" + $Group.Name + "]"
+                              $group.psbase.Invoke("Members") | foreach {
+                              $name = $_.GetType().InvokeMember("Name", 'GetProperty', $null, $_, $null)
+                              $us = $_.GetType().InvokeMember("Adspath", 'GetProperty', $null, $_, $null)
+                              $class = $_.GetType().InvokeMember("Class", 'GetProperty', $null, $_, $null)
+                              $list += new-object psobject -property @{Group = $group.Name;Member=$us;MemberClass=$class;Server=$server}
+                              "`t $name;$class;$us"
+                                }
+                            }else{
+                                Write-Output "[]"
+                            }
+                        }
+                    }
+                } catch {
+                    Write-Output "Nao foi possivel realizar a coleta Sox. Pipeline em ajustes."
+                    Write-Output "Mensagem de erro: $_"
+                    Continue
+                }
+            Write-Output " "
+            } -Credential $credential -ErrorAction Stop
+        }catch{
+            Write-Output "Nao foi possivel executar a coleta SOX."
+            if($_ -like "*connect*" -or "*winrm*"){
+                $err= "Erro de WinRM."
+            } else {
+                $err="$_"
+            }
+            Write-Output "Mensagem de erro: $err"
+        }
+      register: res_sox_groups
+
+    - name: WRITE SOX USERS AND GROUPS RESULT TO FILE
+      ansible.builtin.copy:
+        content: |
+          {{ res_sox_users.stdout }}
+          ==== SOX GROUPS ====
+          {{ res_sox_groups.stdout }}
+        dest: "C:\\temp\\{{ real_hostname }}_sox_audit.log"
+      delegate_to: "{{ inventory_hostname }}"
+      when: 
+        - res_sox_users.rc is defined and res_sox_users.rc == 0
+        - res_sox_groups.rc is defined and res_sox_groups.rc == 0
+
+    - name: RUN SOX CHECKLIST SCRIPT
+      ansible.windows.win_shell: | 
+
+        $formatted_date = (Get-Date -Format "dd/MM/yyyy HH:mm:ss")
+        Write-Output "Data das Medições: $formatted_date"
+        
+        echo ""
+        echo  "[SYSTEM INFO]"
+        systeminfo
+
+        echo ""
+        echo  "[VALIDAR CONSUMO, PAGEFILE]"
+        Write-Output " "
+        (typeperf "\Memory\Available MBytes"  -sc 1)[1]
+        $result = (typeperf "\Memory\Available MBytes" -sc 1)
+        $value_line = $result[2]
+        $columns = $value_line -split ","
+        $memory_mb = [float]($columns[1] -replace '"', '')
+        $memory_gb = $memory_mb / 1024
+        $formatted_memory = "{0:N2} GB" -f $memory_gb
+        Write-Output " "
+        Write-Output "Memória Disponível: $formatted_memory"
+        Write-Output " "
+        (typeperf "\Memory\% Committed Bytes In Use" -sc 1)[1]
+        $result = (typeperf "\Memory\% Committed Bytes In Use" -sc 1)
+        $value_line = $result[2]
+        $columns = $value_line -split ","
+        $memory_mb = [float]($columns[1] -replace '"', '')
+        $formatted_percentage = "{0:N2}%" -f $memory_mb
+        Write-Output " "
+        Write-Output "Percentual de Memória em Uso: $formatted_percentage"
+        Write-Output " "
+        (typeperf "\Memory\Free System Page Table Entries"  -sc 1)[1]
+        $result = (typeperf "\Memory\Free System Page Table Entries" -sc 1)
+        $value_line = $result[2]
+        $columns = $value_line -split ","
+        $memory_mb = [float]($columns[1] -replace '"', '')
+        $formatted_free = "{0:N2} Bytes" -f $memory_mb
+        Write-Output " "
+        Write-Output "Espaço Livre no PageFile: $formatted_free"
+
+        echo ""
+        echo  "[VALIDAR CONSUMO, NUMERO DE THREADS]"
+        ps | sort -des cpu | select  | ft -a
+
+        echo ""
+        echo  "[VALIDAR CONSUMO, PERDA DE PACOTE E CONECTIVIDADE NA PORTA DA APLICACAO]"
+        Netstat -anobq
+
+        echo ""
+        echo  "[VALIDAR OS IPS CONFIGURADOS COM OS DETALHES DE CONEXAO]"
+        ipconfig /all
+
+        echo ""
+        echo  "[GET USERNAME]"
+        echo ""
+        (Get-Process -IncludeUserName | Where-Object { $_.ProcessName -eq "explorer" }).UserName
+
+        echo ""
+        echo  "[LAST LOGONS]"
+        echo ""
+        query user /server:localhost
+
+        echo ""
+        echo  "[UPTIME]"
+        echo ""
+        $lastBootTime = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+        $formattedBootTime = $lastBootTime.ToString("dd/MM/yyyy HH:mm:ss")
+        Write-Output "Último Boot: $formattedBootTime"
+
+        echo ""
+        echo  "[VALIDAR COMPOSIÇÃO E DISPONIBILIDADE DOS DISCOS]"
+        Get-WmiObject -Class Win32_LogicalDisk |
+        Select-Object -Property DeviceID, VolumeName, 
+        @{Label='FreeSpace'; expression={"{0} GB" -f ($_.FreeSpace/1GB).ToString('F2')}},
+        @{Label='Total'; expression={"{0} GB" -f ($_.Size/1GB).ToString('F2')}},
+        @{label='FreePercent'; expression={"{0}%" -f [Math]::Round(($_.freespace / $_.size) * 100, 2)}} | ft
+
+        echo  "[LISTAR COMPARTILHAMENTOS]"
+        net share
+
+        echo ""
+        echo  "[LISTAR PATCHES INSTALADOS]"
+        echo ""
+        wmic qfe list
+
+        echo ""
+        echo  "[LISTAR PROCESSOS AGENDADOS]"
+        echo ""
+        $isWinServer2016OrNewer = [Environment]::OSVersion.Version.Major -ge 10;if ($isWinServer2016OrNewer){ Get-ScheduledTask | Select-Object TaskPath, TaskName, State | ConvertTo-Csv -NoTypeInformation;} else {schtasks;}
+
+      register: res_check
+      ignore_errors: true
+
+    - name: WRITE SOX CHECKLIST SCRIPT RESULT TO FILE   
+      ansible.builtin.copy:    
+        content: "{{ res_check.stdout }}"
+        dest: "C:\\temp\\{{ real_hostname }}_sox_checklist.log"
+      delegate_to: "{{ inventory_hostname }}"
+      when: res_check.stdout is defined

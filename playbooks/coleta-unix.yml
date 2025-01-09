@@ -1,0 +1,98 @@
+  - name: RUN UNIX SOX SCRIPTS
+    include_tasks:
+      file: shell_runner.yml 
+    vars:
+      type: 'sox'
+      output_path: "{{ path_sox_unix }}"
+      output_file: "{{ ansible_hostname }}_sox_audit.txt"
+      params:  "{{ params_sox_unix }}"
+    loop:        
+      - { name: 'SOX', path: "../scripts/unix/sox.sh ", header: false}
+    #no_log: true
+    when: params_sox_unix != ['']
+
+  - name: RUN UNIX SELO SCRIPTS
+    include_tasks:
+      file: shell_runner.yml 
+    vars:
+      type: 'selo'
+      output_path: "../output/sox"
+      output_file: "{{ ansible_hostname }}_sox_audit.txt"
+      params:  "{{ params_selo_unix }}"
+    loop:  
+      - { name: 'HOSTNAME', cmd: "hostname"}
+      - { name: 'SISTEMA OPERACIONAL', cmd: "cat /etc/redhat-release"}
+      - { name: 'HOST IP ADDRESSES', cmd: "hostname --ip-address  | awk '{print $1}'"}
+      - { name: 'GET USERS', cmd: "cat /etc/passwd" }
+      - { name: 'GET GROUPS', cmd: "getent group"}
+    #no_log: true 
+    when: params_selo_unix != ['']
+
+  - name: RUN UNIX CHECKLIST SCRIPTS
+    include_tasks:
+      file: shell_runner.yml 
+    vars:
+      type: 'selo'
+      output_path: "../output/sox"
+      output_file: "{{ ansible_hostname }}_sox_checklist.txt"
+      params:  "{{ params_checklist_unix }}"
+    loop:        
+      - { name: 'HOSTNAME', cmd: "hostname"}
+      - { name: 'OS INFO', path: "../scripts/unix/selo/get-os.sh"}
+      - { name: 'CPU INFO', cmd: "lscpu | egrep 'Model name|Socket|Thread|NUMA|CPU\\(s\\)'" }
+      - { name: 'LIST MOUNT', cmd: "mount | column -t"}
+      - { name: 'LIST DISK FREE', cmd: "df -H"}
+      - { name: 'MEMORY INFO', path: "../scripts/unix/selo/memory-info.sh"}
+      - { name: 'PYTHON VERSION', path: "../scripts/unix/selo/python-ver.sh"}      
+      - { name: 'INSTALLED SECURITY PATCHES', path: "../scripts/unix/selo/get-sec-patches.sh"}
+      - { name: 'CHECK BOND', path: "../scripts/unix/selo/check-bond.sh"}
+      - { name: 'CHECK TZDATA', path: "../scripts/unix/selo/check-tzdata.sh"}
+      - { name: 'CHECK MULTIPATH', path: "../scripts/unix/selo/check-multipath.sh"}
+      - { name: 'CHECK NTP', path: "../scripts/unix/selo/check-ntp.sh"}
+      - { name: 'LIST NTP', cmd: "grep 'iburst' /etc/ntp.conf | awk '{ print $2 }'"}
+      - { name: 'CHECK CHRONY', path: "../scripts/unix/selo/check-chrony.sh"}
+      - { name: 'LIST CHRONY', cmd: "grep 'iburst' /etc/chrony.conf | awk '{ print $2 }'"}
+      - { name: 'CHECK DNS', path: "../scripts/unix/selo/check-dns.sh"}
+      - { name: 'LIST DNS', cmd: "egrep \"10.128.*|10.238.*|10.41.*\" /etc/resolv.conf |awk '{ print $2 }'"}
+      - { name: 'CHECK IPTABLES', path: "../scripts/unix/selo/check-iptables.sh"}
+      - { name: 'LIST IPTABLES', cmd: "cat /etc/modprobe.d/iptables.conf |grep -i alias |awk '{ print $2,$3 }'"}
+      - { name: 'CHECK KDUMP', path: "../scripts/unix/selo/check-kdump.sh"}
+      - { name: 'LIST KDUMP', cmd: "cat /etc/kdump.conf |grep -v ^$ |grep -v \"#\""}
+      - { name: 'CHECK SYSLOG', path: "../scripts/unix/selo/check-syslog.sh"}
+      - { name: 'LIST SYSLOG', cmd: "cat /etc/logrotate.d/syslog"}
+      - { name: 'VALIDA REPO', cmd: "grep -i serverURL=http /etc/sysconfig/rhn/up2date| wc -l| awk '{if($1>0){print \"Repo CONFIGURADO............OK\"}else{print \"Repo CONFIGURADO............NOK\"}}'"}
+      - { name: 'VALIDA LVM', cmd: "grep -i Filter /etc/lvm/lvm.conf | grep -v '#'| wc -l| awk '{if($1>0){print \"LVM  CONFIGURADO............OK\"}else{print \"LVM  CONFIGURADO............NOK\"}}'"}
+      - { name: 'VALIDA SYSLOG', cmd: "grep -i siem.redecorp.br /etc/rsyslog.conf | wc -l| awk '{if($1>0){print \"RSYSLOG  CONFIGURADO............OK\"}else{print \"RSYSLOG  CONFIGURADO............NOK\"}}'"}
+      - { name: 'NETWORK INTERFACES', cmd: "for i in $(ls -l /etc/sysconfig/network-scripts/ifcfg-* |awk '{ print $9 }'); do echo \"###\" $i \"###\" && cat $i && echo -e \"##############################\n\";done"}
+      - { name: 'CHECK BASICO DE LOAD', cmd: "top -b -n 1"}
+      - { name: 'UPTIME', cmd: "uptime"}
+      - { name: 'AVALIACAO DE CONSUMO DE CPU POR USUARIO', path: "../scripts/unix/checklist/check-cpu-user.sh"}
+      - { name: 'AVALIACAO DE CONSUMO DE MEMORIA POR USUARIO', path: "../scripts/unix/checklist/check-memory-user.sh"}
+      - { name: 'AVALIACAO DE CONSUMO DE ESPACO', cmd: "df -kh"}
+      - { name: 'VALIDACAO DO SINCRONISMO DO HORARIO', cmd: "timedatectl &> /dev/null; if [[ $? -eq 0 ]]; then timedatectl; else  ntpstat; fi"}
+      - { name: 'VALIDACAO DO OFFSET DE HORARIO', cmd: "ntpdate -q 127.0.0.1"}
+      # - { name: 'VALIDACAO DE QUALQUER ERRO NA LOG DE SO', cmd: "cat /var/log/messages | egrep -v audit | egrep -i \"err|fail\""}
+      # - { name: 'VALIDACAO DE ERROS DE HARDWARE', cmd: "cat /var/log/messages | egrep \"err|fail|hard\""}
+      - { name: 'AVALIAR STATUS POR DISCO', cmd: "sar -d "}
+      - { name: 'AVALIAR O IOWAIT DOS DISCOS', cmd: "sar"}
+      - { name: 'AVALIAR OS PATHS DE STORAGE', cmd: "systool -c fc_host -v | egrep \"port_nameport_state|Class Device path\""}
+      - { name: 'VALIDACAO DE STATUS E LINK', path: "../scripts/unix/checklist/status-link.sh"}
+      - { name: 'VALIDACAO DE ERROS E LINK', path: "../scripts/unix/checklist/erros-link.sh"}
+      #- { name: 'IDENTIFICACAO DE PORTAS DE SWITCH X INTERFACES', path: "../scripts/unix/checklist/switch-interfaces.sh"}
+      - { name: 'MONITORAMENTO DE PIDS VIA SAR', cmd: "sar -u -r -b 1 -X <pid> | grep -v Average"}
+      - { name: 'IDENTIFICAR O TIPO DE AMBIENTE (FISICO / VIRTUAL)', cmd: "dmidecode -t1"}
+      - { name: 'ANALISE DE EXECUCAO DO SERVICO DO PANDA EDR', cmd: "ps aux | grep -i panda"}
+      - { name: 'ANALISE / ACOES DE EXECUCAO DO SERVIÇO DO DEEP SECURITY', cmd: "service ds_agent status -b"}
+      - { name: 'ANALISE / ACOES DE EXECUCAO', cmd: "service gc-agent status -b"}
+      # - { name: 'ERROS FREQUENTES (ENFORCEMENT)', cmd: "cat /var/log/messages | grep ENFORCEMENT; cat /var/log/gc-enforcement-agent.log; cat /var/log/gc-enforcement-driver.log; cat /var/log/gc-guest-agent.log;"}
+      - { name: 'AVALIAR A CAMADA DE ANALISE', cmd: "cat /etc/default/guardcore"}
+      - { name: 'IDENTIFICACAO DE PROCESSOS POR PORTA / ESTADO', cmd: "netstat -anlp ; netstat -tulpn"}
+      - { name: 'IDENTIFICACAO DOS REBOOTS DO SERVIDOR', cmd: "last -n2 -x shutdown reboot"}
+      - { name: 'IP CONSOLE', cmd: "ipmitool lan print"}
+      - { name: 'WWN', path: "../scripts/unix/checklist/wwn.sh"}
+      - { name: 'CPU', cmd: "sar 5 5"}
+      - { name: 'TAREFAS', cmd: "for user in $(getent passwd | cut -f1 -d: ); do echo $user; crontab -u $user -l; done"}
+      - { name: 'USUARIOS', cmd: "last"}
+    when: params_checklist_unix != ['']
+      
+    #no_log: true 

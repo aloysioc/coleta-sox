@@ -1,0 +1,19 @@
+  - name: SETTING PARAMS FACTS
+    ansible.builtin.set_fact:
+      params_selo_unix: "TODOS"
+      params_sox_unix: "TODOS"
+      params_checklist_unix: "TODOS"
+      # params_checklist_windows: "{{ export_options_checklist_windows.split(',') }}"
+      # params_selo_windows: "{{ export_options_selo_windows.split(',') }}"
+      # params_sox_windows: "{{ export_options_sox_windows.split(',') }}"    
+      ALL: "TODOS"  
+
+  - name: SETTING PATH FACTS
+    ansible.builtin.set_fact:
+      path_selo_unix: "../output/selo"
+      # path_selo_windows: "../output/windows/selo"
+      path_checklist_unix: "../output/checklist"
+      # path_checklist_windows: "../output/windows/checklist"
+      path_sox_unix: "../output/sox"
+      # path_sox_windows: "../output/windows/sox"
+      

@@ -1,0 +1,83 @@
+    - name: SETTING DISPLAY FACTS
+      ansible.builtin.set_fact:
+        title: "\"{{ item.name | upper() }}\" ON {{ ansible_hostname }}({{ ansible_os }})"
+        header: "********** [{{ item.name | upper() }}] **********\r\n"
+      when: ALL in params or item.name in params
+      ignore_errors: true
+ 
+    - name: CREATE OUTPUT DIRECTORY
+      ansible.builtin.file:
+        path: "{{ output_path }}"        
+        state: directory
+        recurse: yes
+      delegate_to: "{{ inventory_hostname }}"
+      when: ALL in params or item.name in params
+      ignore_errors: true
+       
+    - name: RUN COMMAND {{ title }}
+      ansible.builtin.raw: "{{ item.cmd }}"
+      register: res_shell
+      ignore_errors: true
+      when: (ALL in params or item.name in params) and item.cmd is defined
+
+    - name: RUN SCRIPT {{ title }}
+      ansible.builtin.script: "{{ item.path }}"
+      register: res_script
+      ignore_errors: true
+      when: (ALL in params or item.name in params) and item.path is defined
+
+    - name: APPEND STDOUT TO FILE
+      ansible.builtin.lineinfile:    
+        create: yes
+        line: "{{  header }}{{ res_shell.stdout | trim }}\r\n\r\n"
+        path: "{{ output_path }}/{{ output_file }}"
+      delegate_to: "{{ inventory_hostname }}"
+      when: (item.header is not defined or item.header) and (ALL in params or item.name in params) and item.cmd is defined and res_shell.rc is defined and (res_shell.rc ==0 or res_shell.stderr is defined and  res_shell.stderr == "")
+      ignore_errors: true
+
+    - name:  APPEND STDOUT TO FILE - Copy Mode
+      ansible.builtin.copy:    
+        content: "{{ res_shell.stdout  | trim }}"
+        dest: "{{ output_path }}/{{ output_file }}"
+      delegate_to: "{{ inventory_hostname }}"
+      
+      when: (item.header is defined and item.header==false) and (ALL in params or item.name in params) and item.cmd is defined and res_shell.rc is defined and (res_shell.rc ==0 or res_shell.stderr is defined and  res_shell.stderr == "")    
+
+
+    - name: APPEND STDOUT TO FILE
+      ansible.builtin.lineinfile:    
+        create: yes
+        line: "{{ header }}{{ res_script.stdout | trim }}\r\n\r\n"
+        path: "{{ output_path }}/{{ output_file }}"
+      delegate_to: "{{ inventory_hostname }}"
+      when: (item.header is not defined or item.header) and (ALL in params or item.name in params) and item.path is defined and res_script.rc is defined and (res_script.rc ==0 or res_script.stderr is defined and  res_script.stderr == "")
+      ignore_errors: true
+  
+    - name:  APPEND STDOUT TO FILE - Copy Mode
+      ansible.builtin.copy:    
+        content: "{{ res_script.stdout  | trim }}"
+        dest: "{{ output_path }}/{{ output_file }}"
+      delegate_to: "{{ inventory_hostname }}"      
+      when: (item.header is defined and item.header==false) and (ALL in params or item.name in params) and item.path is defined and res_script.rc is defined and (res_script.rc ==0 or res_script.stderr is defined and  res_script.stderr == "")
+
+    - name: APPEND STDERR TO FILE
+      ansible.builtin.lineinfile:    
+        create: yes
+        line: "{{  header }}{{ item.cmd }}\r\n{{ res_shell.stdout | trim }}\r\n{{ res_shell.stderr | trim }}\r\n\r\n"
+        path: "{{ output_path }}/{{ ansible_hostname }}-errors.txt"
+      delegate_to: "{{ inventory_hostname }}"
+      when: (ALL in params or item.name in params) and item.cmd is defined and res_shell.stderr is defined and  res_shell.stderr != "" and res_shell.rc is defined and res_shell.rc !=0
+      ignore_errors: true 
+
+    - name: APPEND STDERR TO FILE
+      ansible.builtin.lineinfile:    
+        create: yes
+        line: "{{ header }}{{ item.path }}\r\n{{ res_script.stdout | trim }}\r\n{{ res_script.stderr | trim }}\r\n\r\n"
+        path: "{{ output_path }}/{{ ansible_hostname }}-errors.txt"
+      delegate_to: "{{ inventory_hostname }}"
+      when: (ALL in params or item.name in params) and item.path is defined and res_script.stderr is defined and  res_script.stderr != "" and res_script.rc is defined and res_script.rc !=0 
+      ignore_errors: true
+
+        
+
+
